@@ -1,0 +1,131 @@
+# =============================================================
+# deploy-vpn.yml — GitHub Actions CI/CD Pipeline
+# Triggered: on every push to main branch
+# =============================================================
+# Required GitHub Secrets:
+#   VPN_SERVER_IP   — IP address of your Ubuntu server
+#   VPN_SERVER_USER — SSH username (e.g. ubuntu, root)
+#   SSH_PRIVATE_KEY — Private key for SSH access
+#   WG_PRIVATE_KEY  — WireGuard server private key
+# =============================================================
+
+name: 🔐 Deploy WireGuard VPN
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'configs/**'
+      - 'scripts/**'
+      - '.github/workflows/**'
+  workflow_dispatch:  # Allow manual trigger from GitHub UI
+
+env:
+  VPN_PORT: 51820
+  VPN_SERVER_IP: "10.0.0.1"
+
+jobs:
+
+  # ────────────────────────────────────────────────────────────
+  # JOB 1: Validate configuration (no server needed)
+  # ────────────────────────────────────────────────────────────
+  validate:
+    name: 🧪 Validate Config & Scripts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🔍 Run config validation tests
+        run: |
+          echo "Running pre-deployment tests..."
+          bash scripts/test_config.sh
+
+      - name: ✅ Validation passed
+        run: echo "All tests passed — proceeding to deployment"
+
+  # ────────────────────────────────────────────────────────────
+  # JOB 2: Deploy VPN to server (only if validate passes)
+  # ────────────────────────────────────────────────────────────
+  deploy:
+    name: 🚀 Deploy to VPN Server
+    runs-on: ubuntu-latest
+    needs: validate  # Only runs if validate job succeeds
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🔑 Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Add server to known_hosts to avoid prompt
+          ssh-keyscan -H "${{ secrets.VPN_SERVER_IP }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: 📂 Copy scripts to server
+        run: |
+          scp -i ~/.ssh/deploy_key -r scripts/ \
+            ${{ secrets.VPN_SERVER_USER }}@${{ secrets.VPN_SERVER_IP }}:~/vpn-deploy/
+
+      - name: 🔧 Install WireGuard on server
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            ${{ secrets.VPN_SERVER_USER }}@${{ secrets.VPN_SERVER_IP }} \
+            "sudo bash ~/vpn-deploy/scripts/install_wireguard.sh"
+
+      - name: 🚀 Deploy WireGuard configuration
+        env:
+          WG_PRIVATE_KEY: ${{ secrets.WG_PRIVATE_KEY }}
+          VPN_SERVER_IP: ${{ env.VPN_SERVER_IP }}
+          VPN_PORT: ${{ env.VPN_PORT }}
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            ${{ secrets.VPN_SERVER_USER }}@${{ secrets.VPN_SERVER_IP }} \
+            "export WG_PRIVATE_KEY='${{ secrets.WG_PRIVATE_KEY }}' && \
+             export VPN_SERVER_IP='${{ env.VPN_SERVER_IP }}' && \
+             export VPN_PORT='${{ env.VPN_PORT }}' && \
+             sudo -E bash ~/vpn-deploy/scripts/deploy_vpn.sh"
+
+      - name: ✅ Verify VPN is running
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            ${{ secrets.VPN_SERVER_USER }}@${{ secrets.VPN_SERVER_IP }} \
+            "sudo wg show wg0 && echo 'VPN is UP ✅'"
+
+      - name: 🧹 Cleanup SSH key
+        if: always()  # Run even if previous steps fail
+        run: rm -f ~/.ssh/deploy_key
+
+  # ────────────────────────────────────────────────────────────
+  # JOB 3: Notify result (success or failure)
+  # ────────────────────────────────────────────────────────────
+  notify:
+    name: 📣 Notify Result
+    runs-on: ubuntu-latest
+    needs: [validate, deploy]
+    if: always()
+
+    steps:
+      - name: ✅ Success notification
+        if: ${{ needs.deploy.result == 'success' }}
+        run: |
+          echo "════════════════════════════════════"
+          echo "  ✅ VPN DEPLOYMENT SUCCESSFUL"
+          echo "  Commit: ${{ github.sha }}"
+          echo "  By: ${{ github.actor }}"
+          echo "  Time: $(date -u)"
+          echo "════════════════════════════════════"
+
+      - name: ❌ Failure notification
+        if: ${{ needs.deploy.result == 'failure' || needs.validate.result == 'failure' }}
+        run: |
+          echo "════════════════════════════════════"
+          echo "  ❌ VPN DEPLOYMENT FAILED"
+          echo "  Commit: ${{ github.sha }}"
+          echo "  Check logs above for details"
+          echo "════════════════════════════════════"
+          exit 1

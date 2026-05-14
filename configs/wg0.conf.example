@@ -1,0 +1,55 @@
+# =============================================================
+# WireGuard VPN Server Configuration — Example Template
+# File: /etc/wireguard/wg0.conf
+# =============================================================
+# ⚠️  DO NOT commit real keys to the repository!
+#     Use GitHub Secrets for WG_PRIVATE_KEY and WG_PUBLIC_KEY.
+# =============================================================
+
+[Interface]
+# The server's WireGuard private key (stored in GitHub Secrets)
+PrivateKey = <WG_PRIVATE_KEY_FROM_SECRET>
+
+# VPN subnet IP assigned to this server
+Address = 10.0.0.1/24
+
+# Port WireGuard listens on (default: 51820)
+ListenPort = 51820
+
+# Firewall rules: enable IP forwarding and NAT for VPN clients
+PostUp   = iptables -A FORWARD -i wg0 -j ACCEPT; \
+           iptables -A FORWARD -o wg0 -j ACCEPT; \
+           iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; \
+           iptables -D FORWARD -o wg0 -j ACCEPT; \
+           iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+
+# DNS server for VPN clients (optional)
+# DNS = 1.1.1.1
+
+# =============================================================
+# CLIENT PEER EXAMPLE
+# Each connected client is a [Peer] block
+# =============================================================
+
+[Peer]
+# Friendly name for this client (comment only)
+# Name: laptop-alice
+
+# Client's WireGuard public key
+PublicKey = <CLIENT_PUBLIC_KEY_HERE>
+
+# IP address assigned to this client inside the VPN tunnel
+AllowedIPs = 10.0.0.2/32
+
+# Optional: keep connection alive through NAT
+PersistentKeepalive = 25
+
+# =============================================================
+# Add more [Peer] blocks below for additional clients
+# =============================================================
+
+# [Peer]
+# PublicKey = <CLIENT2_PUBLIC_KEY_HERE>
+# AllowedIPs = 10.0.0.3/32
+# PersistentKeepalive = 25
