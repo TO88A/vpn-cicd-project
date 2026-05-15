@@ -1,14 +1,3 @@
-# =============================================================
-# deploy-vpn.yml — GitHub Actions CI/CD Pipeline
-# Triggered: on every push to main branch
-# =============================================================
-# Required GitHub Secrets:
-#   VPN_SERVER_IP   — SSH IP address of Ubuntu server, example: 192.168.56.102
-#   VPN_SERVER_USER — SSH username, example: ubuntu
-#   SSH_PRIVATE_KEY — Private key for SSH access
-#   WG_PRIVATE_KEY  — WireGuard server private key
-# =============================================================
-
 name: Deploy WireGuard VPN
 
 on:
@@ -25,10 +14,6 @@ env:
   VPN_PORT: 51820
   VPN_TUNNEL_IP: "10.0.0.1"
 
-defaults:
-  run:
-    shell: bash
-
 jobs:
 
   validate:
@@ -40,12 +25,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run config validation tests
+        shell: powershell
         run: |
-          echo "Running pre-deployment tests..."
-          bash scripts/test_config.sh
+          Write-Host "Running pre-deployment tests..."
+          & "C:\Program Files\Git\bin\bash.exe" scripts/test_config.sh
 
       - name: Validation passed
-        run: echo "All tests passed — proceeding to deployment"
+        shell: powershell
+        run: Write-Host "All tests passed — proceeding to deployment"
 
   deploy:
     name: Deploy to VPN Server
@@ -57,47 +44,57 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup SSH key
+        shell: powershell
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "${{ secrets.VPN_SERVER_IP }}" >> ~/.ssh/known_hosts 2>/dev/null
+          $sshDir = "$env:USERPROFILE\.ssh"
+          $deployKey = "$sshDir\deploy_key"
+
+          New-Item -ItemType Directory -Force -Path $sshDir | Out-Null
+
+          $env:SSH_PRIVATE_KEY | Set-Content -Path $deployKey -NoNewline -Encoding ascii
+
+          icacls $deployKey /inheritance:r
+          icacls $deployKey /grant:r "$($env:USERNAME):R"
+
+          ssh-keyscan -H "${{ secrets.VPN_SERVER_IP }}" | Out-File -FilePath "$sshDir\known_hosts" -Append -Encoding ascii
 
       - name: Prepare remote deployment folder
+        shell: powershell
         run: |
-          ssh -i ~/.ssh/deploy_key \
-            ${{ secrets.VPN_SERVER_USER }}@${{ secrets.VPN_SERVER_IP }} \
-            "mkdir -p ~/vpn-deploy"
+          $deployKey = "$env:USERPROFILE\.ssh\deploy_key"
+          ssh -i $deployKey ${{ secrets.VPN_SERVER_USER }}@${{ secrets.VPN_SERVER_IP }} "mkdir -p ~/vpn-deploy"
 
       - name: Copy scripts to server
+        shell: powershell
         run: |
-          scp -i ~/.ssh/deploy_key -r scripts/ \
-            ${{ secrets.VPN_SERVER_USER }}@${{ secrets.VPN_SERVER_IP }}:~/vpn-deploy/
+          $deployKey = "$env:USERPROFILE\.ssh\deploy_key"
+          scp -i $deployKey -r scripts/ ${{ secrets.VPN_SERVER_USER }}@${{ secrets.VPN_SERVER_IP }}:~/vpn-deploy/
 
       - name: Install WireGuard on server
+        shell: powershell
         run: |
-          ssh -i ~/.ssh/deploy_key \
-            ${{ secrets.VPN_SERVER_USER }}@${{ secrets.VPN_SERVER_IP }} \
-            "sudo bash ~/vpn-deploy/scripts/install_wireguard.sh"
+          $deployKey = "$env:USERPROFILE\.ssh\deploy_key"
+          ssh -i $deployKey ${{ secrets.VPN_SERVER_USER }}@${{ secrets.VPN_SERVER_IP }} "sudo bash ~/vpn-deploy/scripts/install_wireguard.sh"
 
       - name: Deploy WireGuard configuration
+        shell: powershell
         run: |
-          ssh -i ~/.ssh/deploy_key \
-            ${{ secrets.VPN_SERVER_USER }}@${{ secrets.VPN_SERVER_IP }} \
-            "export WG_PRIVATE_KEY='${{ secrets.WG_PRIVATE_KEY }}' && \
-             export VPN_SERVER_IP='${{ env.VPN_TUNNEL_IP }}' && \
-             export VPN_PORT='${{ env.VPN_PORT }}' && \
-             sudo -E bash ~/vpn-deploy/scripts/deploy_vpn.sh"
+          $deployKey = "$env:USERPROFILE\.ssh\deploy_key"
+          ssh -i $deployKey ${{ secrets.VPN_SERVER_USER }}@${{ secrets.VPN_SERVER_IP }} "export WG_PRIVATE_KEY='${{ secrets.WG_PRIVATE_KEY }}' && export VPN_SERVER_IP='${{ env.VPN_TUNNEL_IP }}' && export VPN_PORT='${{ env.VPN_PORT }}' && sudo -E bash ~/vpn-deploy/scripts/deploy_vpn.sh"
 
       - name: Verify VPN is running
+        shell: powershell
         run: |
-          ssh -i ~/.ssh/deploy_key \
-            ${{ secrets.VPN_SERVER_USER }}@${{ secrets.VPN_SERVER_IP }} \
-            "sudo wg show wg0 && echo 'VPN is UP'"
+          $deployKey = "$env:USERPROFILE\.ssh\deploy_key"
+          ssh -i $deployKey ${{ secrets.VPN_SERVER_USER }}@${{ secrets.VPN_SERVER_IP }} "sudo wg show wg0 && echo 'VPN is UP'"
 
       - name: Cleanup SSH key
         if: always()
-        run: rm -f ~/.ssh/deploy_key
+        shell: powershell
+        run: |
+          Remove-Item -Force "$env:USERPROFILE\.ssh\deploy_key" -ErrorAction SilentlyContinue
 
   notify:
     name: Notify Result
@@ -108,20 +105,21 @@ jobs:
     steps:
       - name: Success notification
         if: ${{ needs.deploy.result == 'success' }}
+        shell: powershell
         run: |
-          echo "===================================="
-          echo "VPN DEPLOYMENT SUCCESSFUL"
-          echo "Commit: ${{ github.sha }}"
-          echo "By: ${{ github.actor }}"
-          echo "Time: $(date -u)"
-          echo "===================================="
+          Write-Host "===================================="
+          Write-Host "VPN DEPLOYMENT SUCCESSFUL"
+          Write-Host "Commit: ${{ github.sha }}"
+          Write-Host "By: ${{ github.actor }}"
+          Write-Host "===================================="
 
       - name: Failure notification
         if: ${{ needs.deploy.result == 'failure' || needs.validate.result == 'failure' }}
+        shell: powershell
         run: |
-          echo "===================================="
-          echo "VPN DEPLOYMENT FAILED"
-          echo "Commit: ${{ github.sha }}"
-          echo "Check logs above for details"
-          echo "===================================="
+          Write-Host "===================================="
+          Write-Host "VPN DEPLOYMENT FAILED"
+          Write-Host "Commit: ${{ github.sha }}"
+          Write-Host "Check logs above for details"
+          Write-Host "===================================="
           exit 1
