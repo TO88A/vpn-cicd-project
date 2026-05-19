@@ -45,22 +45,15 @@ jobs:
 
       - name: Setup SSH key
         shell: powershell
-        env:
-          SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY_B64 }}
         run: |
-          $deployKey = "$env:RUNNER_TEMP\deploy_key"
+          $deployKey = "$env:USERPROFILE\.ssh\github_actions_vpn"
 
-          if (Test-Path $deployKey) {
-            Remove-Item -Force $deployKey
+          if (!(Test-Path $deployKey)) {
+            Write-Error "SSH key not found: $deployKey"
+            exit 1
           }
 
-          $keyBytes = [Convert]::FromBase64String($env:SSH_PRIVATE_KEY_B64)
-          [IO.File]::WriteAllBytes($deployKey, $keyBytes)
-
-          icacls $deployKey /inheritance:r
-          icacls $deployKey /grant:r "$($env:USERNAME):R"
-
-          Write-Host "SSH private key created successfully"
+          Write-Host "Using local SSH key: $deployKey"
 
       - name: Prepare remote deployment folder
         shell: powershell
