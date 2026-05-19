@@ -46,7 +46,7 @@ jobs:
       - name: Setup SSH key
         shell: powershell
         env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY_B64 }}
         run: |
           $deployKey = "$env:RUNNER_TEMP\deploy_key"
 
@@ -54,12 +54,13 @@ jobs:
             Remove-Item -Force $deployKey
           }
 
-          $env:SSH_PRIVATE_KEY | Set-Content -Path $deployKey -NoNewline -Encoding ascii
+          $keyBytes = [Convert]::FromBase64String($env:SSH_PRIVATE_KEY_B64)
+          [IO.File]::WriteAllBytes($deployKey, $keyBytes)
 
           icacls $deployKey /inheritance:r
           icacls $deployKey /grant:r "$($env:USERNAME):R"
 
-          Write-Host "SSH key created in runner temp folder"
+          Write-Host "SSH private key created successfully"
 
       - name: Prepare remote deployment folder
         shell: powershell
