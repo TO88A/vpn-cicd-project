@@ -58,38 +58,32 @@ jobs:
       - name: Prepare remote deployment folder
         shell: powershell
         run: |
-          $deployKey = "$env:RUNNER_TEMP\deploy_key"
+          $deployKey = "$env:USERPROFILE\.ssh\github_actions_vpn"
           ssh -o StrictHostKeyChecking=no -i $deployKey ${{ secrets.VPN_SERVER_USER }}@${{ secrets.VPN_SERVER_IP }} "mkdir -p ~/vpn-deploy"
 
       - name: Copy scripts to server
         shell: powershell
         run: |
-          $deployKey = "$env:RUNNER_TEMP\deploy_key"
+          $deployKey = "$env:USERPROFILE\.ssh\github_actions_vpn"
           scp -o StrictHostKeyChecking=no -i $deployKey -r scripts/ ${{ secrets.VPN_SERVER_USER }}@${{ secrets.VPN_SERVER_IP }}:~/vpn-deploy/
 
       - name: Install WireGuard on server
         shell: powershell
         run: |
-          $deployKey = "$env:RUNNER_TEMP\deploy_key"
+          $deployKey = "$env:USERPROFILE\.ssh\github_actions_vpn"
           ssh -o StrictHostKeyChecking=no -i $deployKey ${{ secrets.VPN_SERVER_USER }}@${{ secrets.VPN_SERVER_IP }} "sudo bash ~/vpn-deploy/scripts/install_wireguard.sh"
 
       - name: Deploy WireGuard configuration
         shell: powershell
         run: |
-          $deployKey = "$env:RUNNER_TEMP\deploy_key"
+          $deployKey = "$env:USERPROFILE\.ssh\github_actions_vpn"
           ssh -o StrictHostKeyChecking=no -i $deployKey ${{ secrets.VPN_SERVER_USER }}@${{ secrets.VPN_SERVER_IP }} "export WG_PRIVATE_KEY='${{ secrets.WG_PRIVATE_KEY }}' && export VPN_SERVER_IP='${{ env.VPN_TUNNEL_IP }}' && export VPN_PORT='${{ env.VPN_PORT }}' && sudo -E bash ~/vpn-deploy/scripts/deploy_vpn.sh"
 
       - name: Verify VPN is running
         shell: powershell
         run: |
-          $deployKey = "$env:RUNNER_TEMP\deploy_key"
+          $deployKey = "$env:USERPROFILE\.ssh\github_actions_vpn"
           ssh -o StrictHostKeyChecking=no -i $deployKey ${{ secrets.VPN_SERVER_USER }}@${{ secrets.VPN_SERVER_IP }} "sudo wg show wg0 && echo 'VPN is UP'"
-
-      - name: Cleanup SSH key
-        if: always()
-        shell: powershell
-        run: |
-          Remove-Item -Force "$env:RUNNER_TEMP\deploy_key" -ErrorAction SilentlyContinue
 
   notify:
     name: Notify Result
